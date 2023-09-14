@@ -36,6 +36,10 @@ import org.wso2.carbon.identity.application.authentication.framework.exception.U
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
+import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatorData;
+import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatorParamMetadata;
+import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
+import org.wso2.carbon.identity.application.authentication.framework.util.auth.service.AuthServiceConstants;
 import org.wso2.carbon.identity.application.authenticator.fido.dto.FIDOUser;
 import org.wso2.carbon.identity.application.authenticator.fido.u2f.U2FService;
 import org.wso2.carbon.identity.application.authenticator.fido.util.FIDOAuthenticatorConstants;
@@ -59,6 +63,11 @@ import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -196,7 +205,7 @@ public class FIDOAuthenticator extends AbstractApplicationAuthenticator
         String appID = resolveAppId(request);
 
         try {
-            String redirectUrl = getRedirectUrl(response, user, appID, getLoginPage(), context);
+            String redirectUrl = getRedirectUrl(request, response, user, appID, getLoginPage(), context);
             response.sendRedirect(redirectUrl);
             if (LoggerUtils.isDiagnosticLogsEnabled()) {
                 DiagnosticLog.DiagnosticLogBuilder diagnosticLogBuilder = new DiagnosticLog.DiagnosticLogBuilder(
@@ -337,7 +346,8 @@ public class FIDOAuthenticator extends AbstractApplicationAuthenticator
         return webAuthnEnabled;
     }
 
-    private String getRedirectUrl(HttpServletResponse response, AuthenticatedUser user, String appID, String loginPage,
+    private String getRedirectUrl(HttpServletRequest request, HttpServletResponse response, AuthenticatedUser user,
+                                  String appID, String loginPage,
             AuthenticationContext context)
             throws AuthenticationFailedException, UnsupportedEncodingException, URLBuilderException,
             URISyntaxException {
@@ -350,6 +360,7 @@ public class FIDOAuthenticator extends AbstractApplicationAuthenticator
             if (!isDataNull) {
                 urlEncodedData = URLEncoder.encode(data, IdentityCoreConstants.UTF_8);
             }
+            context.setProperty(FIDOAuthenticatorConstants.AUTHENTICATOR_NAME + "_additional_data", data);
             redirectUrl = getRedirectUrl(isDataNull, loginPage, urlEncodedData, response, user, context);
         } else {
             AuthenticateRequestData data = initiateFidoAuthenticationRequest(user, appID);
@@ -409,6 +420,34 @@ public class FIDOAuthenticator extends AbstractApplicationAuthenticator
                     .replace(FIDOAuthenticatorConstants.URI_LOGIN, FIDOAuthenticatorConstants.URI_FIDO_LOGIN);
         }
         return loginPage;
+    }
+    @Override
+    public Optional<AuthenticatorData> getAuthInitiationData(AuthenticationContext context) {
+
+        AuthenticatorData authenticatorData = new AuthenticatorData();
+        authenticatorData.setName(getName());
+        authenticatorData.setDisplayName(getFriendlyName());
+        String idpName = context.getExternalIdP().getIdPName();
+        authenticatorData.setIdp(idpName);
+
+        List<AuthenticatorParamMetadata> authenticatorParamMetadataList = new ArrayList<>();
+        AuthenticatorParamMetadata tokenMetadata = new AuthenticatorParamMetadata(
+                "tokenResponse", FrameworkConstants.AuthenticatorParamType.STRING, 0);
+        authenticatorParamMetadataList.add(tokenMetadata);
+
+        Map<String, String> additionalData = new HashMap<>();
+        additionalData.put("data",
+                (String) context.getProperty(FIDOAuthenticatorConstants.AUTHENTICATOR_NAME + "_additional_data"));
+        authenticatorData.setAdditionalData(additionalData);
+
+        authenticatorData.setAuthParams(authenticatorParamMetadataList);
+        return Optional.of(authenticatorData);
+    }
+
+    @Override
+    public boolean isAPIBasedAuthenticationSupported() {
+
+        return true;
     }
 
     /** Add application details to a map.
